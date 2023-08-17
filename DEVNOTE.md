@@ -10,7 +10,7 @@
     - `model/loras -> webui/models/Lora`
     - `model/vae -> webui/models/VAE`
     - `model/embeddings -> webui/embeddings`
-
+    - 한번에 처리 : `./link_model.sh /path/to/sd-webui` 실행
 - Default Graph 설정
     - `web/scripts/defaultGraph.js` : 처음에 화면에 보여지는 기본 그래프, Js Object형식
     - `web/scripts/ui.js` : 웹으로 보여지는 UI 메인 화면
