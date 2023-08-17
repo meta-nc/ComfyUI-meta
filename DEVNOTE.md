@@ -1,10 +1,11 @@
 # DEVNOTE
 
 ## Settings
-- 실행 : `python main.py --port=PORT --cuda-device=3 --listen=0.0.0.0`
+- 실행 : `python main.py --port=PORT --cuda-device=3 --listen=0.0.0.0 |& tee -a /path/to/log_file`
     - `--port` : 포트번호
     - `--cuda-device` : multi-gpu환경에서, gpu 장비 id
     - `--listen` : IP 공개 마스크 / host IP
+    - `|& tee -a  /path/to/log_file` : 오류 시 로그 디버깅을 위한, stdout & stderr 로깅
 - model/ : sd-webui와의 model 폴더 공유를 위해 다음과 같이 sym-link 설정
     - `model/checkpoints -> webui/models/Stable-diffusion`
     - `model/loras -> webui/models/Lora`
