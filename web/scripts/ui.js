@@ -6,17 +6,22 @@ import { ComfySettingsDialog } from "./ui/settings.js";
 export const ComfyDialog = _ComfyDialog;
 
 /**
- * 
- * @param { string } tag HTML Element Tag and optional classes e.g. div.class1.class2
- * @param { string | Element | Element[] | {
+ * @template { string | (keyof HTMLElementTagNameMap) } K
+ * @typedef { K extends keyof HTMLElementTagNameMap ? HTMLElementTagNameMap[K] : HTMLElement } ElementType 
+ */
+
+/**
+ * @template { string | (keyof HTMLElementTagNameMap) } K 
+ * @param { K } tag HTML Element Tag and optional classes e.g. div.class1.class2
+ * @param { string | Element | Element[] | ({
  * 	 parent?: Element,
- *   $?: (el: Element) => void, 
+ *   $?: (el: ElementType<K>) => void, 
  *   dataset?: DOMStringMap,
- *   style?: CSSStyleDeclaration,
+ *   style?: Partial<CSSStyleDeclaration>,
  * 	 for?: string
- * } | undefined } propsOrChildren 
- * @param { Element[] | undefined } [children]
- * @returns 
+ * } & Omit<Partial<ElementType<K>>, "style">) | undefined } [propsOrChildren]
+ * @param { string | Element | Element[] | undefined } [children]
+ * @returns { ElementType<K> }
  */
 export function $el(tag, propsOrChildren, children) {
 	const split = tag.split(".");
@@ -54,7 +59,7 @@ export function $el(tag, propsOrChildren, children) {
 
 			Object.assign(element, propsOrChildren);
 			if (children) {
-				element.append(...(children instanceof Array ? children : [children]));
+				element.append(...(children instanceof Array ? children.filter(Boolean) : [children]));
 			}
 
 			if (parent) {
@@ -101,199 +106,194 @@ function dragElement(dragEl, settings) {
 		}
 	}
 
-  function positionElement() {
-    const halfWidth = document.body.clientWidth / 2;
-    const anchorRight = newPosX + dragEl.clientWidth / 2 > halfWidth;
+	function positionElement() {
+		if(dragEl.style.display === "none") return;
 
-    // set the element's new position:
-    if (anchorRight) {
-      dragEl.style.left = "unset";
-      dragEl.style.right =
-        document.body.clientWidth - newPosX - dragEl.clientWidth + "px";
-    } else {
-      dragEl.style.left = newPosX + "px";
-      dragEl.style.right = "unset";
-    }
+		const halfWidth = document.body.clientWidth / 2;
+		const anchorRight = newPosX + dragEl.clientWidth / 2 > halfWidth;
 
-    dragEl.style.top = newPosY + "px";
-    dragEl.style.bottom = "unset";
+		// set the element's new position:
+		if (anchorRight) {
+			dragEl.style.left = "unset";
+			dragEl.style.right = document.body.clientWidth - newPosX - dragEl.clientWidth + "px";
+		} else {
+			dragEl.style.left = newPosX + "px";
+			dragEl.style.right = "unset";
+		}
 
-    if (savePos) {
-      localStorage.setItem(
-        "Comfy.MenuPosition",
-        JSON.stringify({
-          x: dragEl.offsetLeft,
-          y: dragEl.offsetTop,
-        })
-      );
-    }
-  }
+		dragEl.style.top = newPosY + "px";
+		dragEl.style.bottom = "unset";
 
-  function restorePos() {
-    let pos = localStorage.getItem("Comfy.MenuPosition");
-    if (pos) {
-      pos = JSON.parse(pos);
-      newPosX = pos.x;
-      newPosY = pos.y;
-      positionElement();
-      ensureInBounds();
-    }
-  }
+		if (savePos) {
+			localStorage.setItem(
+				"Comfy.MenuPosition",
+				JSON.stringify({
+					x: dragEl.offsetLeft,
+					y: dragEl.offsetTop,
+				})
+			);
+		}
+	}
 
-  let savePos = undefined;
-  settings.addSetting({
-    id: "Comfy.MenuPosition",
-    name: "Save menu position",
-    type: "boolean",
-    defaultValue: savePos,
-    onChange(value) {
-      if (savePos === undefined && value) {
-        restorePos();
-      }
-      savePos = value;
-    },
-  });
+	function restorePos() {
+		let pos = localStorage.getItem("Comfy.MenuPosition");
+		if (pos) {
+			pos = JSON.parse(pos);
+			newPosX = pos.x;
+			newPosY = pos.y;
+			positionElement();
+			ensureInBounds();
+		}
+	}
 
-  function dragMouseDown(e) {
-    e = e || window.event;
-    e.preventDefault();
-    // get the mouse cursor position at startup:
-    posStartX = e.clientX;
-    posStartY = e.clientY;
-    document.onmouseup = closeDragElement;
-    // call a function whenever the cursor moves:
-    document.onmousemove = elementDrag;
-  }
+	let savePos = undefined;
+	settings.addSetting({
+		id: "Comfy.MenuPosition",
+		name: "Save menu position",
+		type: "boolean",
+		defaultValue: savePos,
+		onChange(value) {
+			if (savePos === undefined && value) {
+				restorePos();
+			}
+			savePos = value;
+		},
+	});
 
-  function elementDrag(e) {
-    e = e || window.event;
-    e.preventDefault();
+	function dragMouseDown(e) {
+		e = e || window.event;
+		e.preventDefault();
+		// get the mouse cursor position at startup:
+		posStartX = e.clientX;
+		posStartY = e.clientY;
+		document.onmouseup = closeDragElement;
+		// call a function whenever the cursor moves:
+		document.onmousemove = elementDrag;
+	}
 
-    dragEl.classList.add("comfy-menu-manual-pos");
+	function elementDrag(e) {
+		e = e || window.event;
+		e.preventDefault();
 
-    // calculate the new cursor position:
-    posDiffX = e.clientX - posStartX;
-    posDiffY = e.clientY - posStartY;
-    posStartX = e.clientX;
-    posStartY = e.clientY;
+		dragEl.classList.add("comfy-menu-manual-pos");
 
-    newPosX = Math.min(
-      document.body.clientWidth - dragEl.clientWidth,
-      Math.max(0, dragEl.offsetLeft + posDiffX)
-    );
-    newPosY = Math.min(
-      document.body.clientHeight - dragEl.clientHeight,
-      Math.max(0, dragEl.offsetTop + posDiffY)
-    );
+		// calculate the new cursor position:
+		posDiffX = e.clientX - posStartX;
+		posDiffY = e.clientY - posStartY;
+		posStartX = e.clientX;
+		posStartY = e.clientY;
 
-    positionElement();
-  }
+		newPosX = Math.min(document.body.clientWidth - dragEl.clientWidth, Math.max(0, dragEl.offsetLeft + posDiffX));
+		newPosY = Math.min(document.body.clientHeight - dragEl.clientHeight, Math.max(0, dragEl.offsetTop + posDiffY));
 
-  window.addEventListener("resize", () => {
-    ensureInBounds();
-  });
+		positionElement();
+	}
 
-  function closeDragElement() {
-    // stop moving when mouse button is released:
-    document.onmouseup = null;
-    document.onmousemove = null;
-  }
+	window.addEventListener("resize", () => {
+		ensureInBounds();
+	});
+
+	function closeDragElement() {
+		// stop moving when mouse button is released:
+		document.onmouseup = null;
+		document.onmousemove = null;
+	}
+
+	return restorePos;
 }
 
 class ComfyList {
-  #type;
-  #text;
-  #reverse;
+	#type;
+	#text;
+	#reverse;
 
-  constructor(text, type, reverse) {
-    this.#text = text;
-    this.#type = type || text.toLowerCase();
-    this.#reverse = reverse || false;
-    this.element = $el("div.comfy-list");
-    this.element.style.display = "none";
-  }
+	constructor(text, type, reverse) {
+		this.#text = text;
+		this.#type = type || text.toLowerCase();
+		this.#reverse = reverse || false;
+		this.element = $el("div.comfy-list");
+		this.element.style.display = "none";
+	}
 
-  get visible() {
-    return this.element.style.display !== "none";
-  }
+	get visible() {
+		return this.element.style.display !== "none";
+	}
 
-  async load() {
-    const items = await api.getItems(this.#type);
-    this.element.replaceChildren(
-      ...Object.keys(items).flatMap((section) => [
-        $el("h4", {
-          textContent: section,
-        }),
-        $el("div.comfy-list-items", [
-          ...(this.#reverse ? items[section].reverse() : items[section]).map(
-            (item) => {
-              // Allow items to specify a custom remove action (e.g. for interrupt current prompt)
-              const removeAction = item.remove || {
-                name: "Delete",
-                cb: () => api.deleteItem(this.#type, item.prompt[1]),
-              };
-              return $el("div", { textContent: item.prompt[0] + ": " }, [
-                $el("button", {
-                  textContent: "Load",
-                  onclick: () => {
-                    app.loadGraphData(item.prompt[3].extra_pnginfo.workflow);
-                    if (item.outputs) {
-                      app.nodeOutputs = item.outputs;
-                    }
-                  },
-                }),
-                $el("button", {
-                  textContent: removeAction.name,
-                  onclick: async () => {
-                    await removeAction.cb();
-                    await this.update();
-                  },
-                }),
-              ]);
-            }
-          ),
-        ]),
-      ]),
-      $el("div.comfy-list-actions", [
-        $el("button", {
-          textContent: "Clear " + this.#text,
-          onclick: async () => {
-            await api.clearItems(this.#type);
-            await this.load();
-          },
-        }),
-        $el("button", { textContent: "Refresh", onclick: () => this.load() }),
-      ])
-    );
-  }
+	async load() {
+		const items = await api.getItems(this.#type);
+		this.element.replaceChildren(
+			...Object.keys(items).flatMap((section) => [
+				$el("h4", {
+					textContent: section,
+				}),
+				$el("div.comfy-list-items", [
+					...(this.#reverse ? items[section].reverse() : items[section]).map((item) => {
+						// Allow items to specify a custom remove action (e.g. for interrupt current prompt)
+						const removeAction = item.remove || {
+							name: "Delete",
+							cb: () => api.deleteItem(this.#type, item.prompt[1]),
+						};
+						return $el("div", {textContent: item.prompt[0] + ": "}, [
+							$el("button", {
+								textContent: "Load",
+								onclick: async () => {
+									await app.loadGraphData(item.prompt[3].extra_pnginfo.workflow, true, false);
+									if (item.outputs) {
+										app.nodeOutputs = item.outputs;
+									}
+								},
+							}),
+							$el("button", {
+								textContent: removeAction.name,
+								onclick: async () => {
+									await removeAction.cb();
+									await this.update();
+								},
+							}),
+						]);
+					}),
+				]),
+			]),
+			$el("div.comfy-list-actions", [
+				$el("button", {
+					textContent: "Clear " + this.#text,
+					onclick: async () => {
+						await api.clearItems(this.#type);
+						await this.load();
+					},
+				}),
+				$el("button", {textContent: "Refresh", onclick: () => this.load()}),
+			])
+		);
+	}
 
-  async update() {
-    if (this.visible) {
-      await this.load();
-    }
-  }
+	async update() {
+		if (this.visible) {
+			await this.load();
+		}
+	}
 
-  async show() {
-    this.element.style.display = "block";
-    this.button.textContent = "Close";
+	async show() {
+		this.element.style.display = "block";
+		this.button.textContent = "Close";
 
-    await this.load();
-  }
+		await this.load();
+	}
 
-  hide() {
-    this.element.style.display = "none";
-    this.button.textContent = "View " + this.#text;
-  }
+	hide() {
+		this.element.style.display = "none";
+		this.button.textContent = "View " + this.#text;
+	}
 
-  toggle() {
-    if (this.visible) {
-      this.hide();
-      return false;
-    } else {
-      this.show();
-      return true;
-    }
-  }
+	toggle() {
+		if (this.visible) {
+			this.hide();
+			return false;
+		} else {
+			this.show();
+			return true;
+		}
+	}
 }
 
 export class ComfyUI {
@@ -373,13 +373,15 @@ export class ComfyUI {
 		const fileInput = $el("input", {
 			id: "comfy-file-input",
 			type: "file",
-			accept: ".json,image/png,.latent,.safetensors,image/webp",
+			accept: ".json,image/png,.latent,.safetensors,image/webp,audio/flac",
 			style: {display: "none"},
 			parent: document.body,
 			onchange: () => {
 				app.handleFile(fileInput.files[0]);
 			},
 		});
+
+		this.loadFile = () => fileInput.click();
 
 		const autoQueueModeEl = toggleSwitch(
 			"autoQueueMode",
@@ -606,14 +608,21 @@ export class ComfyUI {
 					if (!confirmClear.value || confirm("Clear workflow?")) {
 						app.clean();
 						app.graph.clear();
+						app.resetView();
 					}
 				}
 			}),
 			$el("button", {
 				id: "comfy-load-default-button", textContent: "Load Default", onclick: async () => {
 					if (!confirmClear.value || confirm("Load default workflow?")) {
+						app.resetView();
 						await app.loadGraphData()
 					}
+				}
+			}),
+			$el("button", {
+				id: "comfy-reset-view-button", textContent: "Reset View", onclick: async () => {
+					app.resetView();
 				}
 			}),
 		]);
@@ -623,10 +632,10 @@ export class ComfyUI {
 			name: "Enable Dev mode Options",
 			type: "boolean",
 			defaultValue: false,
-			onChange: function(value) { document.getElementById("comfy-dev-save-api-button").style.display = value ? "block" : "none"},
+			onChange: function(value) { document.getElementById("comfy-dev-save-api-button").style.display = value ? "flex" : "none"},
 		});
 
-		dragElement(this.menuContainer, this.settings);
+		this.restoreMenuPosition = dragElement(this.menuContainer, this.settings);
 
 		this.setStatus({exec_info: {queue_remaining: "X"}});
 	}
