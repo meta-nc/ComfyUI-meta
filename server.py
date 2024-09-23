@@ -12,6 +12,8 @@ import json
 import glob
 import struct
 import ssl
+import socket
+import ipaddress
 from PIL import Image, ImageOps
 from PIL.PngImagePlugin import PngInfo
 from io import BytesIO
@@ -80,6 +82,68 @@ def create_cors_middleware(allowed_origin: str):
 
     return cors_middleware
 
+def is_loopback(host):
+    if host is None:
+        return False
+    try:
+        if ipaddress.ip_address(host).is_loopback:
+            return True
+        else:
+            return False
+    except:
+        pass
+
+    loopback = False
+    for family in (socket.AF_INET, socket.AF_INET6):
+        try:
+            r = socket.getaddrinfo(host, None, family, socket.SOCK_STREAM)
+            for family, _, _, _, sockaddr in r:
+                if not ipaddress.ip_address(sockaddr[0]).is_loopback:
+                    return loopback
+                else:
+                    loopback = True
+        except socket.gaierror:
+            pass
+
+    return loopback
+
+
+def create_origin_only_middleware():
+    @web.middleware
+    async def origin_only_middleware(request: web.Request, handler):
+        #this code is used to prevent the case where a random website can queue comfy workflows by making a POST to 127.0.0.1 which browsers don't prevent for some dumb reason.
+        #in that case the Host and Origin hostnames won't match
+        #I know the proper fix would be to add a cookie but this should take care of the problem in the meantime
+        if 'Host' in request.headers and 'Origin' in request.headers:
+            host = request.headers['Host']
+            origin = request.headers['Origin']
+            host_domain = host.lower()
+            parsed = urllib.parse.urlparse(origin)
+            origin_domain = parsed.netloc.lower()
+            host_domain_parsed = urllib.parse.urlsplit('//' + host_domain)
+
+            #limit the check to when the host domain is localhost, this makes it slightly less safe but should still prevent the exploit
+            loopback = is_loopback(host_domain_parsed.hostname)
+
+            if parsed.port is None: #if origin doesn't have a port strip it from the host to handle weird browsers, same for host
+                host_domain = host_domain_parsed.hostname
+            if host_domain_parsed.port is None:
+                origin_domain = parsed.hostname
+
+            if loopback and host_domain is not None and origin_domain is not None and len(host_domain) > 0 and len(origin_domain) > 0:
+                if host_domain != origin_domain:
+                    logging.warning("WARNING: request with non matching host and origin {} != {}, returning 403".format(host_domain, origin_domain))
+                    return web.Response(status=403)
+
+        if request.method == "OPTIONS":
+            response = web.Response()
+        else:
+            response = await handler(request)
+
+        return response
+
+    return origin_only_middleware
+
 class PromptServer():
     def __init__(self, loop):
         PromptServer.instance = self
@@ -99,6 +163,8 @@ class PromptServer():
         middlewares = [cache_control]
         if args.enable_cors_header:
             middlewares.append(create_cors_middleware(args.enable_cors_header))
+        else:
+            middlewares.append(create_origin_only_middleware())
 
         max_upload_size = round(args.max_upload_size * 1024 * 1024)
         self.app = web.Application(client_max_size=max_upload_size, middlewares=middlewares)
@@ -155,6 +221,12 @@ class PromptServer():
         def get_embeddings(self):
             embeddings = folder_paths.get_filename_list("embeddings")
             return web.json_response(list(map(lambda a: os.path.splitext(a)[0], embeddings)))
+        
+        @routes.get("/models")
+        def list_model_types(request):
+            model_types = list(folder_paths.folder_names_and_paths.keys())
+
+            return web.json_response(model_types)
 
         @routes.get("/models/{folder}")
         async def get_models(request):
@@ -418,12 +490,17 @@ class PromptServer():
         async def system_stats(request):
             device = comfy.model_management.get_torch_device()
             device_name = comfy.model_management.get_torch_device_name(device)
+            cpu_device = comfy.model_management.torch.device("cpu")
+            ram_total = comfy.model_management.get_total_memory(cpu_device)
+            ram_free = comfy.model_management.get_free_memory(cpu_device)
             vram_total, torch_vram_total = comfy.model_management.get_total_memory(device, torch_total_too=True)
             vram_free, torch_vram_free = comfy.model_management.get_free_memory(device, torch_free_too=True)
 
             system_stats = {
                 "system": {
                     "os": os.name,
+                    "ram_total": ram_total,
+                    "ram_free": ram_free,
                     "comfyui_version": get_comfyui_version(),
                     "python_version": sys.version,
                     "pytorch_version": comfy.model_management.torch_version,
@@ -480,14 +557,15 @@ class PromptServer():
 
         @routes.get("/object_info")
         async def get_object_info(request):
-            out = {}
-            for x in nodes.NODE_CLASS_MAPPINGS:
-                try:
-                    out[x] = node_info(x)
-                except Exception as e:
-                    logging.error(f"[ERROR] An error occurred while retrieving information for the '{x}' node.")
-                    logging.error(traceback.format_exc())
-            return web.json_response(out)
+            with folder_paths.cache_helper:
+                out = {}
+                for x in nodes.NODE_CLASS_MAPPINGS:
+                    try:
+                        out[x] = node_info(x)
+                    except Exception as e:
+                        logging.error(f"[ERROR] An error occurred while retrieving information for the '{x}' node.")
+                        logging.error(traceback.format_exc())
+                return web.json_response(out)
 
         @routes.get("/object_info/{node_class}")
         async def get_object_info_node(request):
